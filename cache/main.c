@@ -22,15 +22,19 @@ typedef struct {
 } cache_stat_t;
 
 char *strsep(char **stringp, const char *delim) {
-    char *rv = *stringp;
-    if (rv) {
-        *stringp += strcspn(*stringp, delim);
-        if (**stringp)
-            *(*stringp)++ = '\0';
-        else
-            *stringp = 0;
+    char *start = *stringp;
+    char *p;
+
+    p = (start != NULL) ? strpbrk(start, delim) : NULL;
+
+    if (p == NULL) {
+        *stringp = NULL;
+    } else {
+        *p = '\0';
+        *stringp = p + 1;
     }
-    return rv;
+
+    return start;
 }
 
 /* Reads a memory access from the trace file and returns
@@ -39,26 +43,25 @@ char *strsep(char **stringp, const char *delim) {
  */
 mem_access_t read_transaction(FILE *ptr_file) {
     char buf[1000];
-    char *token;
     char *string = buf;
     mem_access_t access;
 
     if (fgets(buf, 1000, ptr_file) != NULL) {
 
         /* Get the access type */
-        token = strsep(&string, " \n");
-        if (strcmp(token, "I") == 0) {
+        char *ty = strsep(&string, " \n");
+        if (strcmp(ty, "I") == 0) {
             access.accessType = INSTRUCTION;
-        } else if (strcmp(token, "D") == 0) {
+        } else if (strcmp(ty, "D") == 0) {
             access.accessType = DATA;
         } else {
             printf("Unkown access type\n");
             exit(0);
         }
 
-        /* Get the access type */
-        token = strsep(&string, " \n");
-        access.address = (uint32_t)strtol(token, NULL, 16);
+        /* Get the access address */
+        char *address = strsep(&string, " \n");
+        access.address = strtoul(address, NULL, 16);
 
         return access;
     }
@@ -122,7 +125,7 @@ int main(int argc, char **argv) {
 
     /* Open the file mem_trace.txt to read memory accesses */
     FILE *ptr_file;
-    errno_t err = fopen_s(&ptr_file, "mem_trace.txt", "r");
+    int err = fopen_s(&ptr_file, "mem_trace1.txt", "r");
     if (err) {
         printf("Unable to open the trace file\n");
         exit(1);
