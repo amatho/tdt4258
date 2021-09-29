@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define BLOCK_SIZE 64
+
 typedef enum { DIRECT_MAPPING, FULLY_ASSOCIATIVE } cache_map_t;
 typedef enum { UNIFIED, SPLIT } cache_org_t;
 typedef enum { INSTRUCTION, DATA } access_t;
@@ -20,6 +22,15 @@ typedef struct {
     // you like, however you are now allowed to
     // remove the accesses or hits
 } cache_stat_t;
+
+typedef struct {
+    uint8_t data[BLOCK_SIZE];
+} cache_block_t;
+
+typedef struct {
+    cache_block_t *blocks;
+    uintptr_t size;
+} cache_t;
 
 char *strsep(char **stringp, const char *delim) {
     char *start = *stringp;
@@ -77,7 +88,6 @@ int main(int argc, char **argv) {
     // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
     uint32_t cache_size;
-    uint32_t block_size = 64;
     cache_map_t cache_mapping;
     cache_org_t cache_org;
 
@@ -95,12 +105,16 @@ int main(int argc, char **argv) {
         printf(
             "Usage: ./cache_sim [cache size: 128-4096] [cache mapping: dm|fa] "
             "[cache organization: uc|sc]\n");
-        exit(0);
+        exit(1);
     } else {
         /* argv[0] is program name, parameters start with argv[1] */
 
         /* Set cache size */
-        cache_size = atoi(argv[1]);
+        cache_size = strtoul(argv[1], NULL, 10);
+        if (cache_size % BLOCK_SIZE != 0) {
+            printf("Cache size must be a multiple of %d\n", BLOCK_SIZE);
+            exit(1);
+        }
 
         /* Set Cache Mapping */
         if (strcmp(argv[2], "dm") == 0) {
@@ -109,7 +123,7 @@ int main(int argc, char **argv) {
             cache_mapping = FULLY_ASSOCIATIVE;
         } else {
             printf("Unknown cache mapping\n");
-            exit(0);
+            exit(1);
         }
 
         /* Set Cache Organization */
@@ -119,9 +133,13 @@ int main(int argc, char **argv) {
             cache_org = SPLIT;
         } else {
             printf("Unknown cache organization\n");
-            exit(0);
+            exit(1);
         }
     }
+
+    uintptr_t size = cache_size / BLOCK_SIZE;
+    cache_t cache = {.blocks = calloc(size, sizeof(cache_block_t)),
+                     .size = size};
 
     /* Open the file mem_trace.txt to read memory accesses */
     FILE *ptr_file;
@@ -150,11 +168,13 @@ int main(int argc, char **argv) {
     printf("Accesses: %llu\n", cache_statistics.accesses);
     printf("Hits:     %llu\n", cache_statistics.hits);
     printf("Hit Rate: %.4f\n",
-           (double)cache_statistics.hits / cache_statistics.accesses);
+           (double)cache_statistics.hits / (double)cache_statistics.accesses);
     // You can extend the memory statistic printing if you like!
 
     /* Close the trace file */
     fclose(ptr_file);
+
+    free(cache.blocks);
 
     return 0;
 }
