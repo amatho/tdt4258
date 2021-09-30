@@ -72,7 +72,7 @@ mem_access_t read_transaction(FILE *ptr_file) {
 
         /* Get the access address */
         char *address = strsep(&string, " \n");
-        access.address = strtoul(address, NULL, 16);
+        access.address = (uint32_t)strtoul(address, NULL, 16);
 
         return access;
     }
@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
         /* argv[0] is program name, parameters start with argv[1] */
 
         /* Set cache size */
-        cache_size = strtoul(argv[1], NULL, 10);
+        cache_size = (uint32_t)strtoul(argv[1], NULL, 10);
         if (cache_size % BLOCK_SIZE != 0) {
             printf("Cache size must be a multiple of %d\n", BLOCK_SIZE);
             exit(1);
@@ -142,9 +142,8 @@ int main(int argc, char **argv) {
                      .size = size};
 
     /* Open the file mem_trace.txt to read memory accesses */
-    FILE *ptr_file;
-    int err = fopen_s(&ptr_file, "mem_trace1.txt", "r");
-    if (err) {
+    FILE *ptr_file = fopen("mem_trace1.txt", "r");
+    if (!ptr_file) {
         printf("Unable to open the trace file\n");
         exit(1);
     }
