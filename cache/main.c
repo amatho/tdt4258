@@ -45,22 +45,6 @@ typedef struct {
     uint32_t tag_bits;
 } cache_context_t;
 
-char *strsep(char **stringp, const char *delim) {
-    char *start = *stringp;
-    char *p;
-
-    p = (start != NULL) ? strpbrk(start, delim) : NULL;
-
-    if (p == NULL) {
-        *stringp = NULL;
-    } else {
-        *p = '\0';
-        *stringp = p + 1;
-    }
-
-    return start;
-}
-
 #ifdef _WIN32
 FILE *fopen(const char *filename, const char *mode) {
     FILE *file;
@@ -81,7 +65,7 @@ mem_access_t read_transaction(FILE *ptr_file) {
     if (fgets(buf, 1000, ptr_file) != NULL) {
 
         /* Get the access type */
-        char *ty = strsep(&string, " \n");
+        char *ty = strtok(string, " \n");
         if (strcmp(ty, "I") == 0) {
             access.accessType = INSTRUCTION;
         } else if (strcmp(ty, "D") == 0) {
@@ -92,7 +76,7 @@ mem_access_t read_transaction(FILE *ptr_file) {
         }
 
         /* Get the access address */
-        char *address = strsep(&string, " \n");
+        char *address = strtok(NULL, " \n");
         access.address = (uint32_t)strtoul(address, NULL, 16);
 
         return access;
