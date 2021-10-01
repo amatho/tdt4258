@@ -48,6 +48,14 @@ char *strsep(char **stringp, const char *delim) {
     return start;
 }
 
+#ifdef _WIN32
+FILE *fopen(const char *filename, const char *mode) {
+    FILE *file;
+    fopen_s(&file, filename, mode);
+    return file;
+}
+#endif
+
 /* Reads a memory access from the trace file and returns
  * 1) access type (instruction or data access
  * 2) memory address
