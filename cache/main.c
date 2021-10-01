@@ -1,9 +1,11 @@
 #include <assert.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define ADDRESS_BITS 32
 #define BLOCK_SIZE 64
 
 typedef enum { DIRECT_MAPPING, FULLY_ASSOCIATIVE } cache_map_t;
@@ -24,13 +26,24 @@ typedef struct {
 } cache_stat_t;
 
 typedef struct {
-    uint8_t data[BLOCK_SIZE];
-} cache_block_t;
+    uint8_t valid;
+    uint32_t tag;
+} cache_line_t;
 
 typedef struct {
-    cache_block_t *blocks;
+    cache_line_t *lines;
     uintptr_t size;
+    // FIFO tail index
+    uintptr_t tail_index;
 } cache_t;
+
+typedef struct {
+    uint32_t size;
+    uint32_t block_count;
+    uint32_t offset_bits;
+    uint32_t index_bits;
+    uint32_t tag_bits;
+} cache_context_t;
 
 char *strsep(char **stringp, const char *delim) {
     char *start = *stringp;
@@ -92,6 +105,49 @@ mem_access_t read_transaction(FILE *ptr_file) {
     return access;
 }
 
+uint32_t extract_bits(uint32_t val, uint32_t startBit, uint32_t len) {
+    uint32_t mask = ((1U << len) - 1U) << startBit;
+    return (val & mask) >> startBit;
+}
+
+void cache_read(cache_t *cache, cache_context_t ctx, cache_map_t mapping,
+                mem_access_t access, cache_stat_t *stat) {
+    stat->accesses += 1;
+
+    uint32_t index =
+        extract_bits(access.address, ctx.offset_bits, ctx.index_bits);
+    uint32_t tag = extract_bits(access.address,
+                                ctx.offset_bits + ctx.index_bits, ctx.tag_bits);
+
+    if (mapping == DIRECT_MAPPING) {
+        if (index >= cache->size) {
+            printf("Invalid cache index\n");
+            exit(1);
+        }
+
+        cache_line_t *line = &cache->lines[index];
+        if (line->valid && line->tag == tag) {
+            stat->hits += 1;
+        } else {
+            line->valid = 1;
+            line->tag = tag;
+        }
+    } else {
+        for (uint32_t i = 0; i < ctx.size; i++) {
+            cache_line_t *line = &cache->lines[i];
+            if (line->valid && line->tag == tag) {
+                stat->hits += 1;
+                return;
+            }
+        }
+
+        cache_line_t *line = &cache->lines[cache->tail_index];
+        line->valid = 1;
+        line->tag = tag;
+        cache->tail_index = (cache->tail_index + 1) % cache->size;
+    }
+}
+
 int main(int argc, char **argv) {
     // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
 
@@ -119,10 +175,6 @@ int main(int argc, char **argv) {
 
         /* Set cache size */
         cache_size = (uint32_t)strtoul(argv[1], NULL, 10);
-        if (cache_size % BLOCK_SIZE != 0) {
-            printf("Cache size must be a multiple of %d\n", BLOCK_SIZE);
-            exit(1);
-        }
 
         /* Set Cache Mapping */
         if (strcmp(argv[2], "dm") == 0) {
@@ -145,12 +197,45 @@ int main(int argc, char **argv) {
         }
     }
 
-    uintptr_t size = cache_size / BLOCK_SIZE;
-    cache_t cache = {.blocks = calloc(size, sizeof(cache_block_t)),
-                     .size = size};
+    if (cache_org == SPLIT) {
+        cache_size /= 2;
+    }
+
+    uint32_t block_count = cache_size / BLOCK_SIZE;
+    uint32_t offset_bits = (uint32_t)log2(BLOCK_SIZE);
+
+    uint32_t index_bits;
+    if (cache_mapping == DIRECT_MAPPING) {
+        index_bits = (uint32_t)log2(block_count);
+    } else {
+        index_bits = 0;
+    }
+
+    uint32_t tag_bits = ADDRESS_BITS - index_bits - offset_bits;
+
+    cache_context_t cache_ctx = {.size = cache_size,
+                                 .block_count = block_count,
+                                 .offset_bits = offset_bits,
+                                 .index_bits = index_bits,
+                                 .tag_bits = tag_bits};
+
+    cache_t *instr_cache = malloc(sizeof(cache_t));
+    instr_cache->lines = calloc(block_count, sizeof(cache_line_t));
+    instr_cache->size = block_count;
+    instr_cache->tail_index = 0;
+
+    cache_t *data_cache;
+    if (cache_org == UNIFIED) {
+        data_cache = instr_cache;
+    } else {
+        data_cache = malloc(sizeof(cache_t));
+        data_cache->lines = calloc(block_count, sizeof(cache_line_t));
+        data_cache->size = block_count;
+        data_cache->tail_index = 0;
+    }
 
     /* Open the file mem_trace.txt to read memory accesses */
-    FILE *ptr_file = fopen("mem_trace1.txt", "r");
+    FILE *ptr_file = fopen("mem_trace2.txt", "r");
     if (!ptr_file) {
         printf("Unable to open the trace file\n");
         exit(1);
@@ -166,6 +251,14 @@ int main(int argc, char **argv) {
         printf("%d %x\n", access.accessType, access.address);
         /* Do a cache access */
         // ADD YOUR CODE HERE
+
+        if (access.accessType == INSTRUCTION) {
+            cache_read(instr_cache, cache_ctx, cache_mapping, access,
+                       &cache_statistics);
+        } else {
+            cache_read(data_cache, cache_ctx, cache_mapping, access,
+                       &cache_statistics);
+        }
     }
 
     /* Print the statistics */
@@ -180,8 +273,6 @@ int main(int argc, char **argv) {
 
     /* Close the trace file */
     fclose(ptr_file);
-
-    free(cache.blocks);
 
     return 0;
 }
