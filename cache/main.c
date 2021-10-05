@@ -22,6 +22,10 @@ typedef struct {
     // You can declare additional statistics if
     // you like, however you are now allowed to
     // remove the accesses or hits
+    uint64_t instr_accesses;
+    uint64_t instr_hits;
+    uint64_t data_accesses;
+    uint64_t data_hits;
 } cache_stat_t;
 
 // A cache line
@@ -147,7 +151,7 @@ uint32_t extract_bits(const uint32_t val, const uint32_t startBit,
 
 void cache_read(const cache_context_t ctx, const mem_access_t access,
                 cache_stat_t *const stat) {
-    stat->accesses += 1;
+    stat->accesses++;
 
     uint32_t index =
         extract_bits(access.address, ctx.offset_bits, ctx.index_bits);
@@ -155,10 +159,16 @@ void cache_read(const cache_context_t ctx, const mem_access_t access,
                                 ctx.offset_bits + ctx.index_bits, ctx.tag_bits);
 
     cache_t *cache;
+    // The cache hits for this specific cache (in case of split organization)
+    uint64_t *cache_hits;
     if (access.accessType == INSTRUCTION) {
         cache = ctx.instr_cache;
+        cache_hits = &stat->instr_hits;
+        stat->instr_accesses++;
     } else {
         cache = ctx.data_cache;
+        cache_hits = &stat->data_hits;
+        stat->data_accesses++;
     }
 
     if (ctx.mapping == DIRECT_MAPPING) {
@@ -171,7 +181,8 @@ void cache_read(const cache_context_t ctx, const mem_access_t access,
         // Get the cache line associated with this index
         cache_line_t *line = &cache->lines[index];
         if (line->valid && line->tag == tag) {
-            stat->hits += 1;
+            stat->hits++;
+            (*cache_hits)++;
         } else {
             // Replace the cached value
             line->valid = 1;
@@ -184,7 +195,8 @@ void cache_read(const cache_context_t ctx, const mem_access_t access,
         for (uintptr_t i = 0; i < cache->size; i++) {
             cache_line_t *line = &cache->lines[i];
             if (line->valid && line->tag == tag) {
-                stat->hits += 1;
+                stat->hits++;
+                (*cache_hits)++;
                 return;
             }
         }
@@ -208,35 +220,34 @@ int main(const int argc, const char **argv) {
 
     // argc should be 2 for correct execution
     if (argc != 4) {
-        printf(
-            "Usage: ./cache_sim [cache size: 128-4096] [cache mapping: dm|fa] "
-            "[cache organization: uc|sc]\n");
+        printf("usage: cache_sim <cache size: 128-4096> <cache mapping: dm|fa> "
+               "<cache organization: uc|sc>\n");
         exit(1);
+    }
+
+    // argv[0] is program name, parameters start with argv[1]
+
+    // Set cache size
+    cache_size = (uint32_t)strtoul(argv[1], NULL, 10);
+
+    // Set cache mapping
+    if (strcmp(argv[2], "dm") == 0) {
+        cache_mapping = DIRECT_MAPPING;
+    } else if (strcmp(argv[2], "fa") == 0) {
+        cache_mapping = FULLY_ASSOCIATIVE;
     } else {
-        // argv[0] is program name, parameters start with argv[1]
+        printf("Unknown cache mapping\n");
+        exit(1);
+    }
 
-        // Set cache size
-        cache_size = (uint32_t)strtoul(argv[1], NULL, 10);
-
-        // Set cache mapping
-        if (strcmp(argv[2], "dm") == 0) {
-            cache_mapping = DIRECT_MAPPING;
-        } else if (strcmp(argv[2], "fa") == 0) {
-            cache_mapping = FULLY_ASSOCIATIVE;
-        } else {
-            printf("Unknown cache mapping\n");
-            exit(1);
-        }
-
-        // Set cache organization
-        if (strcmp(argv[3], "uc") == 0) {
-            cache_org = UNIFIED;
-        } else if (strcmp(argv[3], "sc") == 0) {
-            cache_org = SPLIT;
-        } else {
-            printf("Unknown cache organization\n");
-            exit(1);
-        }
+    // Set cache organization
+    if (strcmp(argv[3], "uc") == 0) {
+        cache_org = UNIFIED;
+    } else if (strcmp(argv[3], "sc") == 0) {
+        cache_org = SPLIT;
+    } else {
+        printf("Unknown cache organization\n");
+        exit(1);
     }
 
     // Create the cache context from the user input
@@ -250,11 +261,12 @@ int main(const int argc, const char **argv) {
         exit(1);
     }
 
-    // Loop until whole trace file has been read
-    mem_access_t access;
     cache_stat_t cache_stat;
+    memset(&cache_stat, 0, sizeof(cache_stat_t));
+
+    // Loop until whole trace file has been read
     while (1) {
-        access = read_transaction(ptr_file);
+        const mem_access_t access = read_transaction(ptr_file);
         // If no transactions left, break out of loop
         if (access.address == 0) {
             break;
@@ -269,12 +281,28 @@ int main(const int argc, const char **argv) {
     // Print the statistics
     // DO NOT CHANGE THE FOLLOWING LINES!
     printf("\nCache Statistics\n");
-    printf("-----------------\n\n");
+    printf("-----------------\n");
     printf("Accesses: %lu\n", cache_stat.accesses);
     printf("Hits:     %lu\n", cache_stat.hits);
     printf("Hit Rate: %.4f\n",
            (double)cache_stat.hits / (double)cache_stat.accesses);
     // You can extend the memory statistic printing if you like!
+
+    if (cache_ctx.organization == SPLIT) {
+        printf("\nInstruction Cache Accesses: %lu\n",
+               cache_stat.instr_accesses);
+        printf("Instruction Cache Hits: %lu\n", cache_stat.instr_hits);
+        printf("Instruction Cache Hit Rate: %.4f\n",
+               (double)cache_stat.instr_hits /
+                   (double)cache_stat.instr_accesses);
+
+        printf("\nData Cache Accesses: %lu\n", cache_stat.data_accesses);
+        printf("Data Cache Hits: %lu\n", cache_stat.data_hits);
+        printf("Data Cache Hit Rate: %.4f\n",
+               (double)cache_stat.data_hits / (double)cache_stat.data_accesses);
+    }
+
+    printf("-----------------\n");
 
     // Close the trace file
     fclose(ptr_file);
