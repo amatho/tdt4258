@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ADDRESS_BITS 32
-#define BLOCK_SIZE 64
+enum { ADDRESS_BITS = 32 };
+enum { BLOCK_SIZE = 64 };
 
 typedef enum { DIRECT_MAPPING, FULLY_ASSOCIATIVE } cache_map_t;
 typedef enum { UNIFIED, SPLIT } cache_org_t;
@@ -70,19 +70,20 @@ FILE *fopen(const char *filename, const char *mode) {
 }
 #endif
 
-cache_context_t create_context(uint32_t cache_size, cache_map_t cache_mapping,
-                               cache_org_t cache_org) {
+cache_context_t create_context(uint32_t cache_size,
+                               const cache_map_t cache_mapping,
+                               const cache_org_t cache_org) {
     if (cache_org == SPLIT) {
         cache_size /= 2;
     }
 
-    uint32_t line_count = cache_size / BLOCK_SIZE;
-    uint32_t offset_bits = (uint32_t)log2(BLOCK_SIZE);
-    uint32_t index_bits =
+    const uint32_t line_count = cache_size / BLOCK_SIZE;
+    const uint32_t offset_bits = (uint32_t)log2(BLOCK_SIZE);
+    const uint32_t index_bits =
         cache_mapping == DIRECT_MAPPING ? (uint32_t)log2(line_count) : 0;
-    uint32_t tag_bits = ADDRESS_BITS - index_bits - offset_bits;
+    const uint32_t tag_bits = ADDRESS_BITS - index_bits - offset_bits;
 
-    cache_t *instr_cache = malloc(sizeof(cache_t));
+    cache_t *const instr_cache = malloc(sizeof(cache_t));
     instr_cache->lines = calloc(line_count, sizeof(cache_line_t));
     instr_cache->size = line_count;
     instr_cache->tail_index = 0;
@@ -97,13 +98,13 @@ cache_context_t create_context(uint32_t cache_size, cache_map_t cache_mapping,
         data_cache->tail_index = 0;
     }
 
-    cache_context_t cache_ctx = {.instr_cache = instr_cache,
-                                 .data_cache = data_cache,
-                                 .mapping = cache_mapping,
-                                 .organization = cache_org,
-                                 .offset_bits = offset_bits,
-                                 .index_bits = index_bits,
-                                 .tag_bits = tag_bits};
+    const cache_context_t cache_ctx = {.instr_cache = instr_cache,
+                                       .data_cache = data_cache,
+                                       .mapping = cache_mapping,
+                                       .organization = cache_org,
+                                       .offset_bits = offset_bits,
+                                       .index_bits = index_bits,
+                                       .tag_bits = tag_bits};
 
     return cache_ctx;
 }
@@ -119,7 +120,7 @@ mem_access_t read_transaction(FILE *ptr_file) {
     if (fgets(buf, 1000, ptr_file) != NULL) {
 
         // Get the access type
-        char *ty = strtok(string, " \n");
+        const char *ty = strtok(string, " \n");
         if (strcmp(ty, "I") == 0) {
             access.accessType = INSTRUCTION;
         } else if (strcmp(ty, "D") == 0) {
@@ -130,7 +131,7 @@ mem_access_t read_transaction(FILE *ptr_file) {
         }
 
         // Get the access address
-        char *address = strtok(NULL, " \n");
+        const char *address = strtok(NULL, " \n");
         access.address = (uint32_t)strtoul(address, NULL, 16);
 
         return access;
@@ -144,12 +145,14 @@ mem_access_t read_transaction(FILE *ptr_file) {
 
 // Extracts the bits starting at `startBit` with length `len` and returns them
 // as an integer
-uint32_t extract_bits(uint32_t val, uint32_t startBit, uint32_t len) {
+uint32_t extract_bits(const uint32_t val, const uint32_t startBit,
+                      const uint32_t len) {
     uint32_t mask = ((1U << len) - 1U) << startBit;
     return (val & mask) >> startBit;
 }
 
-void cache_read(cache_context_t ctx, mem_access_t access, cache_stat_t *stat) {
+void cache_read(const cache_context_t ctx, const mem_access_t access,
+                cache_stat_t *const stat) {
     stat->accesses += 1;
 
     uint32_t index =
@@ -201,7 +204,7 @@ void cache_read(cache_context_t ctx, mem_access_t access, cache_stat_t *stat) {
     }
 }
 
-int main(int argc, char **argv) {
+int main(const int argc, const char **argv) {
     uint32_t cache_size;
     cache_map_t cache_mapping;
     cache_org_t cache_org;
@@ -243,7 +246,7 @@ int main(int argc, char **argv) {
     }
 
     // Create the cache context from the user input
-    cache_context_t cache_ctx =
+    const cache_context_t cache_ctx =
         create_context(cache_size, cache_mapping, cache_org);
 
     // Open the file mem_trace.txt to read memory accesses
