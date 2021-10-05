@@ -1,13 +1,13 @@
 [
   {
     "directory": "/home/amatho/code/c/tdt4258/cache",
-    "command": "clang -std=c17 -Werror -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors main.c -o build/main",
+    "command": "clang -std=c17 -Werror -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors main.c -lm -o build/main",
     "file": "main.c",
     "output": "main"
   },
   {
     "directory": "/home/amatho/code/c/tdt4258/cache",
-    "command": "clang -std=c17 -Werror -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors main.c -o build/main.exe",
+    "command": "clang -std=c17 -Werror -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors main.c -lm -o build/main.exe",
     "file": "main.c",
     "output": "main.exe"
   }

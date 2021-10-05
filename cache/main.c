@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
@@ -25,26 +24,44 @@ typedef struct {
     // remove the accesses or hits
 } cache_stat_t;
 
+// A cache line
 typedef struct {
+    // Whether the cache line contains valid data or not
     uint8_t valid;
+    // The tag of the cache line
     uint32_t tag;
 } cache_line_t;
 
+// The cache data structure
 typedef struct {
+    // An array of cache lines
     cache_line_t *lines;
+    // The size of the cache lines array
     uintptr_t size;
-    // FIFO tail index
+    // The tail index for the FIFO queue when the cache is Fully Associative
     uintptr_t tail_index;
 } cache_t;
 
+// Context information for the cache(s)
 typedef struct {
-    uint32_t size;
-    uint32_t block_count;
+    // The instruction cache
+    cache_t *instr_cache;
+    // The data cache
+    cache_t *data_cache;
+    // The cache mapping
+    cache_map_t mapping;
+    // The cache organization
+    cache_org_t organization;
+
+    // Number of bits to use for the offset
     uint32_t offset_bits;
+    // Number of bits to use for the index
     uint32_t index_bits;
+    // Number of bits to use for the tag
     uint32_t tag_bits;
 } cache_context_t;
 
+// fopen is deprecated on Windows in favor of fopen_s
 #ifdef _WIN32
 FILE *fopen(const char *filename, const char *mode) {
     FILE *file;
@@ -53,10 +70,47 @@ FILE *fopen(const char *filename, const char *mode) {
 }
 #endif
 
-/* Reads a memory access from the trace file and returns
- * 1) access type (instruction or data access
- * 2) memory address
- */
+cache_context_t create_context(uint32_t cache_size, cache_map_t cache_mapping,
+                               cache_org_t cache_org) {
+    if (cache_org == SPLIT) {
+        cache_size /= 2;
+    }
+
+    uint32_t line_count = cache_size / BLOCK_SIZE;
+    uint32_t offset_bits = (uint32_t)log2(BLOCK_SIZE);
+    uint32_t index_bits =
+        cache_mapping == DIRECT_MAPPING ? (uint32_t)log2(line_count) : 0;
+    uint32_t tag_bits = ADDRESS_BITS - index_bits - offset_bits;
+
+    cache_t *instr_cache = malloc(sizeof(cache_t));
+    instr_cache->lines = calloc(line_count, sizeof(cache_line_t));
+    instr_cache->size = line_count;
+    instr_cache->tail_index = 0;
+
+    cache_t *data_cache;
+    if (cache_org == UNIFIED) {
+        data_cache = instr_cache;
+    } else {
+        data_cache = malloc(sizeof(cache_t));
+        data_cache->lines = calloc(line_count, sizeof(cache_line_t));
+        data_cache->size = line_count;
+        data_cache->tail_index = 0;
+    }
+
+    cache_context_t cache_ctx = {.instr_cache = instr_cache,
+                                 .data_cache = data_cache,
+                                 .mapping = cache_mapping,
+                                 .organization = cache_org,
+                                 .offset_bits = offset_bits,
+                                 .index_bits = index_bits,
+                                 .tag_bits = tag_bits};
+
+    return cache_ctx;
+}
+
+// Reads a memory access from the trace file and returns
+//  * access type (instruction or data access)
+//  * memory address
 mem_access_t read_transaction(FILE *ptr_file) {
     char buf[1000];
     char *string = buf;
@@ -64,7 +118,7 @@ mem_access_t read_transaction(FILE *ptr_file) {
 
     if (fgets(buf, 1000, ptr_file) != NULL) {
 
-        /* Get the access type */
+        // Get the access type
         char *ty = strtok(string, " \n");
         if (strcmp(ty, "I") == 0) {
             access.accessType = INSTRUCTION;
@@ -75,27 +129,27 @@ mem_access_t read_transaction(FILE *ptr_file) {
             exit(0);
         }
 
-        /* Get the access address */
+        // Get the access address
         char *address = strtok(NULL, " \n");
         access.address = (uint32_t)strtoul(address, NULL, 16);
 
         return access;
     }
 
-    /* If there are no more entries in the file,
-     * return an address 0 that will terminate the infinite loop in main
-     */
+    // If there are no more entries in the file, return an address 0 that will
+    // terminate the infinite loop in main
     access.address = 0;
     return access;
 }
 
+// Extracts the bits starting at `startBit` with length `len` and returns them
+// as an integer
 uint32_t extract_bits(uint32_t val, uint32_t startBit, uint32_t len) {
     uint32_t mask = ((1U << len) - 1U) << startBit;
     return (val & mask) >> startBit;
 }
 
-void cache_read(cache_t *cache, cache_context_t ctx, cache_map_t mapping,
-                mem_access_t access, cache_stat_t *stat) {
+void cache_read(cache_context_t ctx, mem_access_t access, cache_stat_t *stat) {
     stat->accesses += 1;
 
     uint32_t index =
@@ -103,21 +157,34 @@ void cache_read(cache_t *cache, cache_context_t ctx, cache_map_t mapping,
     uint32_t tag = extract_bits(access.address,
                                 ctx.offset_bits + ctx.index_bits, ctx.tag_bits);
 
-    if (mapping == DIRECT_MAPPING) {
+    cache_t *cache;
+    if (access.accessType == INSTRUCTION) {
+        cache = ctx.instr_cache;
+    } else {
+        cache = ctx.data_cache;
+    }
+
+    if (ctx.mapping == DIRECT_MAPPING) {
+        // Make sure the index is in bounds
         if (index >= cache->size) {
             printf("Invalid cache index\n");
             exit(1);
         }
 
+        // Get the cache line associated with this index
         cache_line_t *line = &cache->lines[index];
         if (line->valid && line->tag == tag) {
             stat->hits += 1;
         } else {
+            // Replace the cached value
             line->valid = 1;
             line->tag = tag;
         }
     } else {
-        for (uint32_t i = 0; i < ctx.size; i++) {
+        // Mapping is Fully associative
+
+        // Loop through the cache lines and look for a matching tag
+        for (uintptr_t i = 0; i < cache->size; i++) {
             cache_line_t *line = &cache->lines[i];
             if (line->valid && line->tag == tag) {
                 stat->hits += 1;
@@ -125,42 +192,36 @@ void cache_read(cache_t *cache, cache_context_t ctx, cache_map_t mapping,
             }
         }
 
+        // A matching tag was not found, so we insert it in the queue
         cache_line_t *line = &cache->lines[cache->tail_index];
         line->valid = 1;
         line->tag = tag;
+        // Increment the tail index of the queue with wrap-around
         cache->tail_index = (cache->tail_index + 1) % cache->size;
     }
 }
 
 int main(int argc, char **argv) {
-    // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
-
     uint32_t cache_size;
     cache_map_t cache_mapping;
     cache_org_t cache_org;
 
-    // USE THIS FOR YOUR CACHE STATISTICS
-    cache_stat_t cache_statistics;
+    // Read command-line parameters and initialize:
+    // cache_size, cache_mapping and cache_org variables
 
-    // Reset statistics:
-    memset(&cache_statistics, 0, sizeof(cache_stat_t));
-
-    /* Read command-line parameters and initialize:
-     * cache_size, cache_mapping and cache_org variables
-     */
-
-    if (argc != 4) { /* argc should be 2 for correct execution */
+    // argc should be 2 for correct execution
+    if (argc != 4) {
         printf(
             "Usage: ./cache_sim [cache size: 128-4096] [cache mapping: dm|fa] "
             "[cache organization: uc|sc]\n");
         exit(1);
     } else {
-        /* argv[0] is program name, parameters start with argv[1] */
+        // argv[0] is program name, parameters start with argv[1]
 
-        /* Set cache size */
+        // Set cache size
         cache_size = (uint32_t)strtoul(argv[1], NULL, 10);
 
-        /* Set Cache Mapping */
+        // Set cache mapping
         if (strcmp(argv[2], "dm") == 0) {
             cache_mapping = DIRECT_MAPPING;
         } else if (strcmp(argv[2], "fa") == 0) {
@@ -170,7 +231,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
 
-        /* Set Cache Organization */
+        // Set cache organization
         if (strcmp(argv[3], "uc") == 0) {
             cache_org = UNIFIED;
         } else if (strcmp(argv[3], "sc") == 0) {
@@ -181,82 +242,53 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (cache_org == SPLIT) {
-        cache_size /= 2;
-    }
+    // Create the cache context from the user input
+    cache_context_t cache_ctx =
+        create_context(cache_size, cache_mapping, cache_org);
 
-    uint32_t block_count = cache_size / BLOCK_SIZE;
-    uint32_t offset_bits = (uint32_t)log2(BLOCK_SIZE);
-
-    uint32_t index_bits;
-    if (cache_mapping == DIRECT_MAPPING) {
-        index_bits = (uint32_t)log2(block_count);
-    } else {
-        index_bits = 0;
-    }
-
-    uint32_t tag_bits = ADDRESS_BITS - index_bits - offset_bits;
-
-    cache_context_t cache_ctx = {.size = cache_size,
-                                 .block_count = block_count,
-                                 .offset_bits = offset_bits,
-                                 .index_bits = index_bits,
-                                 .tag_bits = tag_bits};
-
-    cache_t *instr_cache = malloc(sizeof(cache_t));
-    instr_cache->lines = calloc(block_count, sizeof(cache_line_t));
-    instr_cache->size = block_count;
-    instr_cache->tail_index = 0;
-
-    cache_t *data_cache;
-    if (cache_org == UNIFIED) {
-        data_cache = instr_cache;
-    } else {
-        data_cache = malloc(sizeof(cache_t));
-        data_cache->lines = calloc(block_count, sizeof(cache_line_t));
-        data_cache->size = block_count;
-        data_cache->tail_index = 0;
-    }
-
-    /* Open the file mem_trace.txt to read memory accesses */
-    FILE *ptr_file = fopen("mem_trace2.txt", "r");
+    // Open the file mem_trace.txt to read memory accesses
+    FILE *ptr_file = fopen("mem_trace.txt", "r");
     if (!ptr_file) {
         printf("Unable to open the trace file\n");
         exit(1);
     }
 
-    /* Loop until whole trace file has been read */
+    // Loop until whole trace file has been read
     mem_access_t access;
+    cache_stat_t cache_stat;
     while (1) {
         access = read_transaction(ptr_file);
         // If no transactions left, break out of loop
-        if (access.address == 0)
+        if (access.address == 0) {
             break;
-        printf("%d %x\n", access.accessType, access.address);
-        /* Do a cache access */
-        // ADD YOUR CODE HERE
-
-        if (access.accessType == INSTRUCTION) {
-            cache_read(instr_cache, cache_ctx, cache_mapping, access,
-                       &cache_statistics);
-        } else {
-            cache_read(data_cache, cache_ctx, cache_mapping, access,
-                       &cache_statistics);
         }
+
+        printf("%d %x\n", access.accessType, access.address);
+
+        // Perform a cache read
+        cache_read(cache_ctx, access, &cache_stat);
     }
 
-    /* Print the statistics */
+    // Print the statistics
     // DO NOT CHANGE THE FOLLOWING LINES!
     printf("\nCache Statistics\n");
     printf("-----------------\n\n");
-    printf("Accesses: %lu\n", cache_statistics.accesses);
-    printf("Hits:     %lu\n", cache_statistics.hits);
+    printf("Accesses: %lu\n", cache_stat.accesses);
+    printf("Hits:     %lu\n", cache_stat.hits);
     printf("Hit Rate: %.4f\n",
-           (double)cache_statistics.hits / (double)cache_statistics.accesses);
+           (double)cache_stat.hits / (double)cache_stat.accesses);
     // You can extend the memory statistic printing if you like!
 
-    /* Close the trace file */
+    // Close the trace file
     fclose(ptr_file);
+
+    free(cache_ctx.instr_cache->lines);
+    free(cache_ctx.instr_cache);
+
+    if (cache_ctx.organization == SPLIT) {
+        free(cache_ctx.data_cache->lines);
+        free(cache_ctx.data_cache);
+    }
 
     return 0;
 }
