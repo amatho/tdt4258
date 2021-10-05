@@ -63,6 +63,8 @@ typedef struct {
 
 // fopen is deprecated on Windows in favor of fopen_s
 #ifdef _WIN32
+#define fscanf fscanf_s
+
 FILE *fopen(const char *filename, const char *mode) {
     FILE *file;
     fopen_s(&file, filename, mode);
@@ -113,26 +115,18 @@ cache_context_t create_context(uint32_t cache_size,
 //  * access type (instruction or data access)
 //  * memory address
 mem_access_t read_transaction(FILE *ptr_file) {
-    char buf[1000];
-    char *string = buf;
+    char type;
     mem_access_t access;
 
-    if (fgets(buf, 1000, ptr_file) != NULL) {
-
-        // Get the access type
-        const char *ty = strtok(string, " \n");
-        if (strcmp(ty, "I") == 0) {
+    if (fscanf(ptr_file, "%c %x\n", &type, &access.address) == 2) {
+        if (type == 'I') {
             access.accessType = INSTRUCTION;
-        } else if (strcmp(ty, "D") == 0) {
+        } else if (type == 'D') {
             access.accessType = DATA;
         } else {
             printf("Unkown access type\n");
             exit(0);
         }
-
-        // Get the access address
-        const char *address = strtok(NULL, " \n");
-        access.address = (uint32_t)strtoul(address, NULL, 16);
 
         return access;
     }
