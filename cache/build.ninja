@@ -2,7 +2,7 @@ cc = clang
 cflags = -std=c17 -Werror -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors
 
 rule cc
-    command = $cc $cflags $in -o build/$out
+    command = $cc $cflags $in -lm -o build/$out
 
 build main: cc main.c
 build main.exe: cc main.c

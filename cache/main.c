@@ -249,8 +249,8 @@ int main(int argc, char **argv) {
     // DO NOT CHANGE THE FOLLOWING LINES!
     printf("\nCache Statistics\n");
     printf("-----------------\n\n");
-    printf("Accesses: %llu\n", cache_statistics.accesses);
-    printf("Hits:     %llu\n", cache_statistics.hits);
+    printf("Accesses: %lu\n", cache_statistics.accesses);
+    printf("Hits:     %lu\n", cache_statistics.hits);
     printf("Hit Rate: %.4f\n",
            (double)cache_statistics.hits / (double)cache_statistics.accesses);
     // You can extend the memory statistic printing if you like!
