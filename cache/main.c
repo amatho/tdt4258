@@ -65,17 +65,6 @@ typedef struct {
     uint32_t tag_bits;
 } cache_context_t;
 
-// fopen is deprecated on Windows in favor of fopen_s
-#ifdef _WIN32
-#define fscanf fscanf_s
-
-FILE *fopen(const char *filename, const char *mode) {
-    FILE *file;
-    fopen_s(&file, filename, mode);
-    return file;
-}
-#endif
-
 cache_context_t create_context(uint32_t cache_size,
                                const cache_map_t cache_mapping,
                                const cache_org_t cache_org) {

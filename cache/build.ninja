@@ -5,4 +5,5 @@ rule cc
     command = $cc $cflags $in -lm -o build/$out
 
 build main: cc main.c
-build main.exe: cc main.c
+
+default main
