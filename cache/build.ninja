@@ -1,5 +1,5 @@
 cc = clang
-cflags = -std=c17 -Werror -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors
+cflags = -std=c17 -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=unused-variable -pedantic-errors
 
 rule cc
     command = $cc $cflags $in -lm -o build/$out
