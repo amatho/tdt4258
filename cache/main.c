@@ -79,6 +79,7 @@ cache_context_t create_context(uint32_t cache_size,
     const uint32_t tag_bits = ADDRESS_BITS - index_bits - offset_bits;
 
     cache_t *const instr_cache = malloc(sizeof(cache_t));
+    // Allocate zero-initialized memory for the cache lines
     instr_cache->lines = calloc(line_count, sizeof(cache_line_t));
     instr_cache->size = line_count;
     instr_cache->tail_index = 0;
@@ -88,6 +89,7 @@ cache_context_t create_context(uint32_t cache_size,
         data_cache = instr_cache;
     } else {
         data_cache = malloc(sizeof(cache_t));
+        // Allocate zero-initialized memory for the cache lines
         data_cache->lines = calloc(line_count, sizeof(cache_line_t));
         data_cache->size = line_count;
         data_cache->tail_index = 0;
@@ -138,6 +140,7 @@ uint32_t extract_bits(const uint32_t val, const uint32_t startBit,
     return (val & mask) >> startBit;
 }
 
+// Perform a cache read using the given context, memory access, and statistics
 void cache_read(const cache_context_t ctx, const mem_access_t access,
                 cache_stat_t *const stat) {
     stat->accesses++;
