@@ -281,7 +281,7 @@ int main(const int argc, const char **argv) {
     // Print the statistics
     // DO NOT CHANGE THE FOLLOWING LINES!
     printf("\nCache Statistics\n");
-    printf("-----------------\n");
+    printf("-----------------\n\n");
     printf("Accesses: %lu\n", cache_stat.accesses);
     printf("Hits:     %lu\n", cache_stat.hits);
     printf("Hit Rate: %.4f\n",
