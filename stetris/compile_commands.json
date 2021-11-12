@@ -1,0 +1,8 @@
+[
+  {
+    "directory": "/Users/amatho/code/c/tdt4258/stetris",
+    "command": "clang --target=arm-unknown-linux-gnueabihf --sysroot=sysroot -isysroot=sysroot -Lsysroot/usr/lib/gcc/arm-linux-gnueabihf/8 -Bsysroot/usr/lib/gcc/arm-linux-gnueabihf/8 --gcc-toolchain=arm-linux-gnueabihf-binutils -std=c17 stetris.c -o build/main",
+    "file": "stetris.c",
+    "output": "main"
+  }
+]

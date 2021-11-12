@@ -1,0 +1,10 @@
+cc = clang
+crossflags = --target=arm-unknown-linux-gnueabihf --sysroot=sysroot -isysroot=sysroot -Lsysroot/usr/lib/gcc/arm-linux-gnueabihf/8 -Bsysroot/usr/lib/gcc/arm-linux-gnueabihf/8 --gcc-toolchain=arm-linux-gnueabihf-binutils -fuse-ld=lld
+cflags = -std=c17 -Wall -Wextra -Wconversion -Wunreachable-code -Wuninitialized -Wno-error=gnu-case-range -pedantic-errors
+
+rule cc
+    command = $cc $crossflags $cflags $in -o build/$out
+
+build main: cc stetris.c
+
+default main
