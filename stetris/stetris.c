@@ -1,5 +1,6 @@
 #define _DEFAULT_SOURCE
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <linux/fb.h>
@@ -88,17 +89,17 @@ uint16_t tile_color_table[TILE_COLOR_TABLE_SIZE] = {
 // A wrapping index into the color table
 uint32_t tile_color_index = 0;
 
-int32_t findJoystick() {
-    int32_t fd = -1;
-    int32_t i = 0;
+int32_t find_joystick() {
+    DIR *input_dir = opendir("/dev/input");
+    struct dirent *entry;
 
-    while (i < 32) {
-        char path[19];
-        sprintf(path, "/dev/input/event%d", i);
-        fd = open(path, O_RDONLY);
+    while ((entry = readdir(input_dir))) {
+        char path[267];
+        snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
+        int32_t fd = open(path, O_RDONLY);
 
         if (fd < 0) {
-            return fd;
+            continue;
         }
 
         char name[32];
@@ -109,44 +110,53 @@ int32_t findJoystick() {
         }
 
         close(fd);
-        i++;
     }
 
     return -1;
 }
 
-int32_t findFrameBuffer() {
-    int32_t fd = -1;
-    int32_t i = 0;
+int32_t frame_buffer_dir_filter(const struct dirent *e) {
+    return strcmp(e->d_name, "/dev/fb") >= 0;
+}
 
-    while (i < 32) {
-        char path[10];
-        sprintf(path, "/dev/fb%d", i);
+int32_t find_frame_buffer() {
+    struct dirent **namelist;
+    int32_t n =
+        scandir("/dev", &namelist, &frame_buffer_dir_filter, &alphasort);
+
+    if (n == -1) {
+        return -1;
+    }
+
+    int32_t fd;
+    while (n--) {
+        char path[261];
+        snprintf(path, sizeof(path), "/dev/%s", namelist[n]->d_name);
         fd = open(path, O_RDWR);
 
         if (fd < 0) {
-            return fd;
+            continue;
         }
 
         struct fb_fix_screeninfo info;
         if (ioctl(fd, FBIOGET_FSCREENINFO, &info) >= 0) {
             if (strncmp(info.id, "RPi-Sense FB", 12) == 0) {
-                return fd;
+                break;
             }
         }
 
         close(fd);
-        i++;
     }
 
-    return -1;
+    free(namelist);
+    return fd;
 }
 
 // This function is called on the start of your application
 // Here you can initialize what ever you need for your task
 // return false if something fails, else true
 bool initializeSenseHat() {
-    int32_t joy_fd = findJoystick();
+    int32_t joy_fd = find_joystick();
     if (joy_fd < 0) {
         fprintf(stderr, "could not find the joystick\n");
         return false;
@@ -154,7 +164,7 @@ bool initializeSenseHat() {
 
     SENSE_HAT.joy_fd = joy_fd;
 
-    int32_t fb_fd = findFrameBuffer();
+    int32_t fb_fd = find_frame_buffer();
     if (fb_fd < 0) {
         fprintf(stderr, "could not find the LED frame buffer\n");
         return false;
