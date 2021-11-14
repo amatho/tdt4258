@@ -2,7 +2,6 @@
 
 #include <dirent.h>
 #include <fcntl.h>
-#include <inttypes.h>
 #include <linux/fb.h>
 #include <linux/input.h>
 #include <poll.h>
@@ -26,11 +25,13 @@
 #define FRAME_BUFFER_SIZE 64
 #define TILE_COLOR_TABLE_SIZE 7
 
+typedef __u16 fb_pixel_t;
+
 // If you extend this structure, either avoid pointers or adjust
 // the game logic allocate/deallocate and reset the memory
 typedef struct {
     bool occupied;
-    uint16_t color;
+    fb_pixel_t color;
 } tile;
 
 typedef struct {
@@ -61,18 +62,12 @@ typedef struct {
 } gameConfig;
 
 typedef struct {
-    int32_t joy_fd;
-    int32_t fb_fd;
+    int joy_fd;
+    int fb_fd;
     struct fb_fix_screeninfo fb_fix_info;
     struct fb_var_screeninfo fb_var_info;
-    uint16_t *led_fb;
+    fb_pixel_t *led_fb;
 } sense_hat_t;
-
-typedef struct {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-} pixel_rgb_t;
 
 gameConfig game = {
     .grid = {8, 8},
@@ -84,19 +79,19 @@ gameConfig game = {
 sense_hat_t SENSE_HAT;
 
 // A table of RGB565 values to use for the tiles
-uint16_t tile_color_table[TILE_COLOR_TABLE_SIZE] = {
+fb_pixel_t tile_color_table[TILE_COLOR_TABLE_SIZE] = {
     0xF800, 0xFBE0, 0xFFE0, 0x7E0, 0x7FF, 0x1F, 0xF81F};
 // A wrapping index into the color table
-uint32_t tile_color_index = 0;
+unsigned long tile_color_index = 0;
 
-int32_t find_joystick() {
+int open_joystick() {
     DIR *input_dir = opendir("/dev/input");
     struct dirent *entry;
 
     while ((entry = readdir(input_dir))) {
         char path[267];
         snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
-        int32_t fd = open(path, O_RDONLY);
+        int fd = open(path, O_RDONLY);
 
         if (fd < 0) {
             continue;
@@ -115,20 +110,19 @@ int32_t find_joystick() {
     return -1;
 }
 
-int32_t frame_buffer_dir_filter(const struct dirent *e) {
+int frame_buffer_dir_filter(const struct dirent *e) {
     return strcmp(e->d_name, "/dev/fb") >= 0;
 }
 
-int32_t find_frame_buffer() {
+int open_frame_buffer() {
     struct dirent **namelist;
-    int32_t n =
-        scandir("/dev", &namelist, &frame_buffer_dir_filter, &alphasort);
+    int n = scandir("/dev", &namelist, &frame_buffer_dir_filter, &alphasort);
 
     if (n == -1) {
         return -1;
     }
 
-    int32_t fd;
+    int fd;
     while (n--) {
         char path[261];
         snprintf(path, sizeof(path), "/dev/%s", namelist[n]->d_name);
@@ -156,7 +150,7 @@ int32_t find_frame_buffer() {
 // Here you can initialize what ever you need for your task
 // return false if something fails, else true
 bool initializeSenseHat() {
-    int32_t joy_fd = find_joystick();
+    int joy_fd = open_joystick();
     if (joy_fd < 0) {
         fprintf(stderr, "could not find the joystick\n");
         return false;
@@ -164,7 +158,7 @@ bool initializeSenseHat() {
 
     SENSE_HAT.joy_fd = joy_fd;
 
-    int32_t fb_fd = find_frame_buffer();
+    int fb_fd = open_frame_buffer();
     if (fb_fd < 0) {
         fprintf(stderr, "could not find the LED frame buffer\n");
         return false;
@@ -210,9 +204,9 @@ void freeSenseHat() {
 // !!! when nothing was pressed you MUST return 0 !!!
 int readSenseHatJoystick() {
     struct pollfd fds = {.fd = SENSE_HAT.joy_fd, .events = POLLIN};
-    int32_t ev_len = poll(&fds, 1, 0);
+    int ev_len = poll(&fds, 1, 0);
 
-    int32_t key = 0;
+    int key = 0;
     if (ev_len < 0) {
         fprintf(stderr, "joystick poll returned an error");
     } else if (ev_len == 0) {
@@ -221,9 +215,9 @@ int readSenseHatJoystick() {
 
     struct input_event events[ev_len];
     read(SENSE_HAT.joy_fd, events,
-         sizeof(struct input_event) * (uint32_t)ev_len);
+         sizeof(struct input_event) * (unsigned int)ev_len);
 
-    for (int32_t i = 0; i < ev_len; i++) {
+    for (int i = 0; i < ev_len; i++) {
         struct input_event ev = events[i];
         if (ev.type == EV_KEY && ev.value == 1) {
             key = ev.code;
@@ -241,8 +235,8 @@ void renderSenseHatMatrix(bool const playfieldChanged) {
         return;
     }
 
-    for (uint32_t j = 0; j < game.grid.y; j++) {
-        for (uint32_t i = 0; i < game.grid.x; i++) {
+    for (unsigned long j = 0; j < game.grid.y; j++) {
+        for (unsigned long i = 0; i < game.grid.x; i++) {
             SENSE_HAT.led_fb[(j * game.grid.y) + i] =
                 game.playfield[j][i].color;
         }
