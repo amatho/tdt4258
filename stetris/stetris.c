@@ -90,7 +90,7 @@ sense_hat_t SENSE_HAT;
 fb_pixel_t tile_color_table[] = {0xF800, 0xFBE0, 0xFFE0, 0x7E0,
                                  0x7FF,  0x1F,   0xF81F};
 // Macro for calculating the size of the color table
-#define TILE_COLOR_TABLE_SIZE sizeof(tile_color_table) / sizeof(fb_pixel_t)
+#define TILE_COLOR_TABLE_SIZE (sizeof(tile_color_table) / sizeof(fb_pixel_t))
 // A wrapping index into the color table
 unsigned long tile_color_index = 0;
 
