@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -23,14 +24,15 @@
 #define TILE_ADDED (1 << 2)
 
 #define FRAME_BUFFER_SIZE 64
-#define TILE_COLOR_TABLE_SIZE 7
 
+// Each pixel in the frame buffer is 16 bits (RGB565)
 typedef __u16 fb_pixel_t;
 
 // If you extend this structure, either avoid pointers or adjust
 // the game logic allocate/deallocate and reset the memory
 typedef struct {
     bool occupied;
+    // The RGB565 color value of the tile
     fb_pixel_t color;
 } tile;
 
@@ -61,11 +63,17 @@ typedef struct {
                                 // lowers with increasing level, never reaches 0
 } gameConfig;
 
+// Sense HAT initialization state
 typedef struct {
+    // File descriptor of the joystick input
     int joy_fd;
+    // File descriptor of the LED frame buffer
     int fb_fd;
+    // Fixed screen info of the LED frame buffer
     struct fb_fix_screeninfo fb_fix_info;
+    // Variable screen info of the LED frame buffer
     struct fb_var_screeninfo fb_var_info;
+    // The memory mapped frame buffer
     fb_pixel_t *led_fb;
 } sense_hat_t;
 
@@ -79,24 +87,30 @@ gameConfig game = {
 sense_hat_t SENSE_HAT;
 
 // A table of RGB565 values to use for the tiles
-fb_pixel_t tile_color_table[TILE_COLOR_TABLE_SIZE] = {
-    0xF800, 0xFBE0, 0xFFE0, 0x7E0, 0x7FF, 0x1F, 0xF81F};
+fb_pixel_t tile_color_table[] = {0xF800, 0xFBE0, 0xFFE0, 0x7E0,
+                                 0x7FF,  0x1F,   0xF81F};
+// Macro for calculating the size of the color table
+#define TILE_COLOR_TABLE_SIZE sizeof(tile_color_table) / sizeof(fb_pixel_t)
 // A wrapping index into the color table
 unsigned long tile_color_index = 0;
 
+// Find and open the file for the joystick input
 int open_joystick() {
     DIR *input_dir = opendir("/dev/input");
     struct dirent *entry;
 
+    // Walk through all input devices
     while ((entry = readdir(input_dir))) {
-        char path[267];
-        snprintf(path, sizeof(path), "/dev/input/%s", entry->d_name);
-        int fd = open(path, O_RDONLY);
+        // Open the input device
+        int fd = openat(dirfd(input_dir), entry->d_name, O_RDONLY);
 
+        // Continue if the device could not be opened
         if (fd < 0) {
             continue;
         }
 
+        // Check if the device is the Sense HAT joystick, in that case return
+        // the file descriptor
         char name[32];
         if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0) {
             if (strncmp(name, "Raspberry Pi Sense HAT Joystick", 31) == 0) {
@@ -104,34 +118,45 @@ int open_joystick() {
             }
         }
 
+        // Close the input before the next iteration
         close(fd);
     }
 
     return -1;
 }
 
+// Filter function that accepts entries that begin with "/dev/fb"
 int frame_buffer_dir_filter(const struct dirent *e) {
     return strcmp(e->d_name, "/dev/fb") >= 0;
 }
 
+// Find and open the LED frame buffer
 int open_frame_buffer() {
+    // Walk the /dev directory using the filter function above, and sorting by
+    // name
+    int dev_dir = open("/dev", O_RDONLY);
     struct dirent **namelist;
-    int n = scandir("/dev", &namelist, &frame_buffer_dir_filter, &alphasort);
+    int n = scandirat(dev_dir, ".", &namelist, &frame_buffer_dir_filter,
+                      &alphasort);
 
+    // This should never happen, but return -1 if /dev is empty
     if (n == -1) {
         return -1;
     }
 
+    // Loop through the filtered entries in /dev and find the LED frame buffer
     int fd;
     while (n--) {
-        char path[261];
-        snprintf(path, sizeof(path), "/dev/%s", namelist[n]->d_name);
-        fd = open(path, O_RDWR);
+        // Open a frame buffer
+        fd = openat(dev_dir, namelist[n]->d_name, O_RDWR);
 
+        // Continue if the frame buffer could not be opened
         if (fd < 0) {
             continue;
         }
 
+        // Get the fixed screen info in order to check the identificaiton of the
+        // frame buffer, and check if it is the frame buffer we are looking for
         struct fb_fix_screeninfo info;
         if (ioctl(fd, FBIOGET_FSCREENINFO, &info) >= 0) {
             if (strncmp(info.id, "RPi-Sense FB", 12) == 0) {
@@ -139,9 +164,11 @@ int open_frame_buffer() {
             }
         }
 
+        // Close the frame buffer before the next iteration
         close(fd);
     }
 
+    // Remember to free up the namelist allocated by scandir
     free(namelist);
     return fd;
 }
@@ -183,6 +210,7 @@ bool initializeSenseHat() {
         return false;
     }
 
+    // Memory map the LED frame buffer with read, write, and shared access
     SENSE_HAT.led_fb =
         mmap(0, SENSE_HAT.fb_fix_info.smem_len, PROT_READ | PROT_WRITE,
              MAP_SHARED, SENSE_HAT.fb_fd, 0);
@@ -203,9 +231,11 @@ void freeSenseHat() {
 // and KEY_ENTER, when the the joystick is pressed
 // !!! when nothing was pressed you MUST return 0 !!!
 int readSenseHatJoystick() {
+    // Poll the joystick input, and check for available events
     struct pollfd fds = {.fd = SENSE_HAT.joy_fd, .events = POLLIN};
     int ev_len = poll(&fds, 1, 0);
 
+    // Check for poll errors
     int key = 0;
     if (ev_len < 0) {
         fprintf(stderr, "joystick poll returned an error");
@@ -213,10 +243,12 @@ int readSenseHatJoystick() {
         return key;
     }
 
+    // Read ev_len input events from the joystick
     struct input_event events[ev_len];
     read(SENSE_HAT.joy_fd, events,
          sizeof(struct input_event) * (unsigned int)ev_len);
 
+    // Check all events for key presses (not key release)
     for (int i = 0; i < ev_len; i++) {
         struct input_event ev = events[i];
         if (ev.type == EV_KEY && ev.value == 1) {
@@ -231,12 +263,17 @@ int readSenseHatJoystick() {
 // every game tick. The parameter playfieldChanged signals whether the game
 // logic has changed the playfield
 void renderSenseHatMatrix(bool const playfieldChanged) {
+    // No need to update the LEDs if nothing has changed
     if (!playfieldChanged) {
         return;
     }
 
+    // Loop through all tiles and update the corresponding pixel in the frame
+    // buffer
     for (unsigned long j = 0; j < game.grid.y; j++) {
         for (unsigned long i = 0; i < game.grid.x; i++) {
+            // The frame buffer stores the pixels in a packed format, i.e. a
+            // flat array
             SENSE_HAT.led_fb[(j * game.grid.y) + i] =
                 game.playfield[j][i].color;
         }
@@ -249,8 +286,11 @@ void renderSenseHatMatrix(bool const playfieldChanged) {
 
 static inline void newTile(coord const target) {
     game.playfield[target.y][target.x].occupied = true;
+    // Set the new tile's color to be one of the colors in the table
     game.playfield[target.y][target.x].color =
         tile_color_table[tile_color_index];
+    // Update the color table index and make sure to wrap around if it exceeds
+    // the length of the table
     tile_color_index = (tile_color_index + 1) % TILE_COLOR_TABLE_SIZE;
 }
 
